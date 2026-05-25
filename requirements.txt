@@ -1,0 +1,7 @@
+requests
+tqdm
+numpy
+aiohttp
+tiktoken
+openai
+datasets
