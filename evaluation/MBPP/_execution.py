@@ -10,6 +10,15 @@ import multiprocessing
 import platform
 import signal
 import tempfile
+import collections
+import functools
+import heapq
+import itertools
+import math
+import operator
+import re
+import string
+import sys
 
 def _pack_test_cases(test_cases, timeout):
     blank_4 = ' ' * 4
@@ -25,6 +34,55 @@ def _pack_test_cases(test_cases, timeout):
     return result
 
 
+def _default_exec_globals():
+    return {
+        'collections': collections,
+        'functools': functools,
+        'heapq': heapq,
+        'itertools': itertools,
+        'math': math,
+        'operator': operator,
+        're': re,
+        'string': string,
+        'sys': sys,
+    }
+
+
+def _unsafe_execute_with_test_cases(result, prompt, completion, test_cases, timeout):
+    with create_tempdir():
+        # These system calls are needed when cleaning up tempdir.
+        import os
+        import shutil
+        rmtree = shutil.rmtree
+        rmdir = os.rmdir
+        chdir = os.chdir
+
+        # Disable functionalities that can make destructive changes to the test.
+        reliability_guard()
+
+        # Construct the check program and run it.
+        check_program = (
+            prompt + "\n" + completion + "\n" +
+            _pack_test_cases(test_cases, timeout)
+        )
+
+        try:
+            exec_globals = _default_exec_globals()
+            exec_globals['time_limit'] = time_limit
+            with swallow_io():
+                exec(check_program, exec_globals)
+            result.append(exec_globals['final_result'])
+        except TimeoutException:
+            result.append("timed out")
+        except BaseException as e:
+            result.append(f"failed: {e}")
+
+        # Needed for cleaning up.
+        shutil.rmtree = rmtree
+        os.rmdir = rmdir
+        os.chdir = chdir
+
+
 def check_correctness_with_test_cases(task_id, prompt, completion, test_cases, timeout):
     """
     Evaluates the functional correctness of a solution_content by running the test
@@ -32,45 +90,13 @@ def check_correctness_with_test_cases(task_id, prompt, completion, test_cases, t
     """
     extend_timeout = timeout*len(test_cases)
 
-    def unsafe_execute():
-
-        with create_tempdir():
-
-            # These system calls are needed when cleaning up tempdir.
-            import os
-            import shutil
-            rmtree = shutil.rmtree
-            rmdir = os.rmdir
-            chdir = os.chdir
-
-            # Disable functionalities that can make destructive changes to the test.
-            reliability_guard()
-
-            # Construct the check program and run it.
-            check_program = (
-                prompt + completion + "\n" +
-                _pack_test_cases(test_cases, timeout)
-            )
-
-            try:
-                exec_globals = {'time_limit': time_limit}
-                with swallow_io():
-                    exec(check_program, exec_globals)
-                result.append(exec_globals['final_result'])
-            except TimeoutException:
-                result.append("timed out")
-            except BaseException as e:
-                result.append(f"failed: {e}")
-
-            # Needed for cleaning up.
-            shutil.rmtree = rmtree
-            os.rmdir = rmdir
-            os.chdir = chdir
-
     manager = multiprocessing.Manager()
     result = manager.list()
 
-    p = multiprocessing.Process(target=unsafe_execute)
+    p = multiprocessing.Process(
+        target=_unsafe_execute_with_test_cases,
+        args=(result, prompt, completion, test_cases, timeout),
+    )
     p.start()
     p.join(timeout=extend_timeout + 0.1)
     if p.is_alive():
@@ -87,51 +113,54 @@ def check_correctness_with_test_cases(task_id, prompt, completion, test_cases, t
         result=result[0]
     )
 
+
+def _unsafe_execute_correctness(result, prompt, completion, test, entry_point, timeout):
+    with create_tempdir():
+        # These system calls are needed when cleaning up tempdir.
+        import os
+        import shutil
+        rmtree = shutil.rmtree
+        rmdir = os.rmdir
+        chdir = os.chdir
+
+        # Disable functionalities that can make destructive changes to the test.
+        reliability_guard()
+
+        # Construct the check program and run it.
+        check_program = prompt + "\n" + completion + "\n" + test
+        if 'def check(' in test:
+            check_program += "\n" + f'check({entry_point})'
+
+        try:
+            exec_globals = _default_exec_globals()
+            with swallow_io():
+                with time_limit(timeout):
+                    exec(check_program, exec_globals)
+            result.append("passed")
+        except TimeoutException:
+            result.append("timed out")
+        except BaseException as e:
+            result.append(f"failed: {e}")
+
+        # Needed for cleaning up.
+        shutil.rmtree = rmtree
+        os.rmdir = rmdir
+        os.chdir = chdir
+
+
 def check_correctness(task_id: str, prompt: str, completion: str, test: str, entry_point: str, timeout: float) -> Dict:
     """
     Evaluates the functional correctness of a completion by running the test
     suite provided in the problem. 
     """
 
-    def unsafe_execute():
-
-        with create_tempdir():
-
-            # These system calls are needed when cleaning up tempdir.
-            import os
-            import shutil
-            rmtree = shutil.rmtree
-            rmdir = os.rmdir
-            chdir = os.chdir
-
-            # Disable functionalities that can make destructive changes to the test.
-            reliability_guard()
-
-            # Construct the check program and run it.
-            check_program = (
-                prompt + completion + "\n" + test + "\n" + f'check({entry_point})'
-            )
-
-            try:
-                exec_globals = {}
-                with swallow_io():
-                    with time_limit(timeout):
-                        exec(check_program, exec_globals)
-                result.append("passed")
-            except TimeoutException:
-                result.append("timed out")
-            except BaseException as e:
-                result.append(f"failed: {e}")
-
-            # Needed for cleaning up.
-            shutil.rmtree = rmtree
-            os.rmdir = rmdir
-            os.chdir = chdir
-
     manager = multiprocessing.Manager()
     result = manager.list()
 
-    p = multiprocessing.Process(target=unsafe_execute)
+    p = multiprocessing.Process(
+        target=_unsafe_execute_correctness,
+        args=(result, prompt, completion, test, entry_point, timeout),
+    )
     p.start()
     p.join(timeout=timeout+1)
     if p.is_alive():
@@ -149,6 +178,10 @@ def check_correctness(task_id: str, prompt: str, completion: str, test: str, ent
 
 @contextlib.contextmanager
 def time_limit(seconds: float):
+    if not hasattr(signal, 'setitimer'):
+        yield
+        return
+
     def signal_handler(signum, frame):
         raise TimeoutException("Timed out!")
     signal.setitimer(signal.ITIMER_REAL, seconds)

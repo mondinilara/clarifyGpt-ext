@@ -3,6 +3,8 @@ import json
 import sys
 import time
 from pathlib import Path
+from datetime import datetime
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CLARIFY_DIR = PROJECT_ROOT / 'src' / 'clarify'
@@ -75,7 +77,7 @@ def main():
 
     total = len(tasks)
     for idx, task in enumerate(tasks, start=1):
-        print(f'[ClarifyGPT] Generating {args.samples_per_task} samples for task {idx}/{total}: {task["task_id"]}')
+        print(f'{datetime.now()} [ClarifyGPT] Generating {args.samples_per_task} samples for task {idx}/{total}: {task["task_id"]}')
         prompt = build_generation_prompt(task)
         completions = llm._completion(
             max_tokens=args.max_tokens,
@@ -86,12 +88,21 @@ def main():
             prompt=prompt,
         )
 
-        for completion in completions:
-            append_jsonl(output_path, {
+        for completion_idx, completion in enumerate(completions):
+            row = {
                 'task_id': task['task_id'],
                 'prompt': task['prompt'],
                 'raw_code_completion': completion,
-            })
+                'completion_index': completion_idx,
+            }
+            if completion_idx == 0:
+                row.update({
+                    'usage': getattr(llm, 'last_usage', None),
+                    'usage_scope': 'request',
+                    'model': getattr(llm, 'last_model', None),
+                    'provider': getattr(llm, 'last_provider', None),
+                })
+            append_jsonl(output_path, row)
 
         if args.sleep_between_tasks > 0 and idx < total:
             time.sleep(args.sleep_between_tasks)

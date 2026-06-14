@@ -1,0 +1,14 @@
+gpt-4o-mini
+25 exemplos por tarefa
+85 tarefas (1/5 da base)
+
+---------------
+
+Total tokens: 241.309
+
+Total requests: 241.309
+
+spend: 
+
+pass@1:  0.7294
+

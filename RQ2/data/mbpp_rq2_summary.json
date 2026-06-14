@@ -1,0 +1,16 @@
+{
+  "source": "C:\\Users\\laram\\Desenvolvimento\\_doutorado\\ClarifyGPT\\src\\data\\mbpp_sanitized_microsoft.jsonl",
+  "task_count": 85,
+  "outputs": {
+    "source": "C:\\Users\\laram\\Desenvolvimento\\_doutorado\\ClarifyGPT\\RQ2\\data\\mbpp_rq2_transformed.jsonl",
+    "tests": "C:\\Users\\laram\\Desenvolvimento\\_doutorado\\ClarifyGPT\\RQ2\\data\\mbpp_rq2_tests_final.jsonl",
+    "report": "C:\\Users\\laram\\Desenvolvimento\\_doutorado\\ClarifyGPT\\RQ2\\data\\mbpp_rq2_transform_report.jsonl"
+  },
+  "transformations": [
+    "function entry_point renamed to rq2_task_<task_id>",
+    "all formal parameters renamed to rq2_arg_<position>",
+    "formal parameter order reversed in the prompt when the function has at least two parameters",
+    "docstring paraphrased with deterministic lexical rewrites",
+    "tests updated to call the renamed function"
+  ]
+}

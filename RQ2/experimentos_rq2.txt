@@ -1,0 +1,19 @@
+gpt-4o-mini
+25 exemplos por tarefa
+85 tarefas (1/5 da base)
+
+---------------
+inicio: 2026-06-12 18:08:30
+fim:    2026-06-13 00:09:00
+
+Total tokens: 330,053
+
+Total requests: 3,186
+
+spend: 2.72
+
+
+pass@1:  0.7176
+
+
+OBS: rodou do 1 ao 38 e dps estourou erro de cota insuficiente. foi necessario iniciar novamente.

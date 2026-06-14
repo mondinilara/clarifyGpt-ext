@@ -31,11 +31,142 @@ dataset original
 ```text
 baseline/
 evaluation/
+RQ2/
+RQ3/
 src/
+README_COMANDOS.md
 README.md
-README_EXPLICADO.md
 requirements.txt
 ```
+
+## Perguntas de pesquisa deste projeto
+
+Este workspace ficou organizado em três frentes experimentais:
+
+| RQ | Nome | Objetivo | Pasta principal |
+| --- | --- | --- | --- |
+| RQ1 | Reprodução do ClarifyGPT | Fazer o pipeline original rodar localmente no MBPP, incluindo geração de samples, `needcq`, `askcq`, `answercq`, `synthesize`, `final` e avaliação. | `src/`, `evaluation/`, `README_COMANDOS.md` |
+| RQ2 | Stress Test de Data Leakage | Aplicar transformações semânticas no MBPP para reduzir correspondência superficial com dados de treino. | `RQ2/` |
+| RQ3 | Otimização de Prompt | Comparar o prompt original do artigo com uma versão mais curta, medindo redução de tokens e impacto em precisão. | `RQ3/` |
+
+### RQ1 - Reprodução do ClarifyGPT
+
+A RQ1 é o que este README já descreve nas seções principais: preparar o MBPP, gerar amostras de código, detectar tarefas ambíguas, gerar perguntas/respostas de esclarecimento, sintetizar uma solução final e avaliar com `pass@k`.
+
+Os principais ajustes feitos para conseguir reproduzir o pipeline localmente foram:
+
+- criação de `src/prepare_mbpp_data.py` para preparar o MBPP sanitized;
+- criação de `src/generate_mbpp_samples.py` para gerar amostras reais via API;
+- adaptação de `src/clarify/gpt4_utils.py` para OpenAI/OpenRouter/DeepSeek via variáveis de ambiente;
+- ajuste de `src/clarify/run_clarify_gpt4_mbpp.py` para rodar por etapas com `--stage`;
+- suporte a `--samples-per-task`, `--limit`, `--force` e caminhos customizados;
+- correções na avaliação MBPP para rodar melhor no Windows;
+- criação de `src/create_mbpp_eval_subset.py` para avaliar apenas o recorte realmente gerado.
+
+O passo a passo operacional da RQ1 está em:
+
+```text
+README_COMANDOS.md
+```
+
+### RQ2 - Stress Test de Data Leakage
+
+A RQ2 cria uma versão transformada do MBPP para testar se o desempenho depende de pistas superficiais do benchmark original.
+
+A pasta principal é:
+
+```text
+RQ2/
+```
+
+Arquivos principais:
+
+```text
+RQ2/README.md
+RQ2/transform_mbpp_rq2.py
+RQ2/transform_mbpp_rq2.ps1
+RQ2/create_rq2_final_inputs.py
+RQ2/create_rq2_final_inputs.ps1
+RQ2/data/
+```
+
+Transformações aplicadas:
+
+- renomeação da função para `rq2_task_<task_id>`;
+- renomeação dos argumentos para `rq2_arg_<position>`;
+- reordenação dos argumentos no prompt quando havia pelo menos dois parâmetros;
+- atualização correspondente das chamadas nos testes para preservar a semântica;
+- parafraseamento determinístico do docstring;
+- geração de relatório por tarefa em `RQ2/data/mbpp_rq2_transform_report.jsonl`.
+
+Exemplo:
+
+```python
+def similar_elements(test_tup1, test_tup2):
+    '''
+    Write a function to find the shared elements from the given two lists.
+    '''
+```
+
+vira:
+
+```python
+def rq2_task_2(rq2_arg_2, rq2_arg_1):
+    '''
+Implement a function that compute the shared elements from the provided two lists.
+    '''
+```
+
+O README específico da RQ2 explica como gerar os dados transformados, rodar o pipeline e criar o arquivo final sem reutilizar baseline do MBPP original:
+
+```text
+RQ2/README.md
+```
+
+### RQ3 - Otimização de Prompt
+
+A RQ3 compara os prompts originais do ClarifyGPT com uma versão otimizada e mais curta.
+
+A pasta principal é:
+
+```text
+RQ3/
+```
+
+Arquivos principais:
+
+```text
+RQ3/README.md
+RQ3/prompt_mbpp_optimized.py
+RQ3/measure_prompt_tokens.py
+RQ3/measure_prompt_tokens.ps1
+RQ3/token_reduction_report.json
+```
+
+O que foi alterado:
+
+- os prompts `three_shot` de `askcq`, `answercq` e `synthesize` foram resumidos;
+- as instruções longas foram convertidas em regras objetivas;
+- os exemplos few-shot foram mantidos, mas com análises e respostas mais diretas;
+- a estrutura de saída foi preservada: `### Analysis`, `### Clarifying Questions`, `### Answers` e código final;
+- o runner `src/clarify/run_clarify_gpt4_mbpp.py` passou a aceitar `--prompt-module`, permitindo alternar entre prompt original e otimizado sem editar o prompt original.
+
+Redução estimada nos prompts estáticos `three_shot`:
+
+| Etapa | Original | Otimizado | Redução | Redução % |
+| --- | ---: | ---: | ---: | ---: |
+| `askcq` | 1269 | 782 | 487 | 38.38% |
+| `answercq` | 1012 | 689 | 323 | 31.92% |
+| `synthesize` | 1016 | 482 | 534 | 52.56% |
+| **Total** | **3297** | **1953** | **1344** | **40.76%** |
+
+Esses números foram gerados em `RQ3/token_reduction_report.json` usando estimativa regex. Com `tiktoken` instalado, eles podem ser recalculados com:
+
+```powershell
+python RQ3\measure_prompt_tokens.py
+```
+
+Na RQ3, normalmente não se roda `prepare_mbpp_data`, `generate_mbpp_samples` nem `needcq` novamente. A ideia é reaproveitar dataset, samples e tarefas ambíguas do experimento base para isolar uma única variável: o prompt usado em `askcq`, `answercq` e `synthesize`.
 
 ### `src/`
 

@@ -36,6 +36,9 @@ class FewShotLLM(object):
                 'HTTP-Referer': os.getenv('OPENROUTER_HTTP_REFERER', 'http://localhost'),
                 'X-Title': os.getenv('OPENROUTER_APP_TITLE', 'ClarifyGPT'),
             })
+        self.last_usage = None
+        self.last_model = self.model
+        self.last_provider = self.provider
 
     def _generate_completion_prompt(self, messages: List[Dict[str, str]]) -> str:
         return "\n".join([message['content'] for message in messages])
@@ -112,8 +115,11 @@ class FewShotLLM(object):
         max_retries = 8
         while cnt < max_retries:
             try:
-                return [self._request(max_tokens, temperature, n, messages)['choices'][i]['message']['content']
-                        for i in range(n)]
+                response = self._request(max_tokens, temperature, n, messages)
+                self.last_usage = response.get('usage')
+                self.last_model = response.get('model', self.model)
+                self.last_provider = self.provider
+                return [response['choices'][i]['message']['content'] for i in range(n)]
 
             except Exception as e:
                 body = self._error_body(e)

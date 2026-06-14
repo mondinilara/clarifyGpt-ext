@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 from collections import defaultdict
+import re
 
 from io_utils import Tools
 
@@ -29,7 +30,7 @@ class PostProcessor:
                     'completion': 'empty solution here, execution will fail'
                 })
             for sample in pre['samples']:
-                processed_code = PostProcessor.solution_extract(sample)
+                processed_code = PostProcessor.solution_extract(sample, task['entry_point'])
                 result.append({
                     'task_id': task['task_id'],
                     'prompt': pre['prompt'],
@@ -56,11 +57,69 @@ class PostProcessor:
         return test_cases_by_task
 
     @staticmethod
-    def solution_extract(content):
+    def solution_extract(content, entry_point=None):
+        content = PostProcessor._strip_markdown(content)
+        if entry_point and f'def {entry_point}' in content:
+            return PostProcessor._extract_function_body(content, entry_point)
+
         for identifier in STOP_TOKEN:
             if identifier in content:
                 content = content.split(identifier)[0]
         return content
+
+    @staticmethod
+    def _strip_markdown(content):
+        if "```" not in content:
+            return content
+
+        parts = content.split("```")
+        if len(parts) < 2:
+            return content
+
+        code = parts[1].strip()
+        if code.startswith("python"):
+            code = code[len("python"):].strip()
+        return code
+
+    @staticmethod
+    def _extract_function_body(content, entry_point):
+        pattern = rf'^\s*def\s+{re.escape(entry_point)}\s*\([^)]*\)\s*:'
+        lines = content.splitlines()
+        def_idx = None
+
+        for idx, line in enumerate(lines):
+            if re.match(pattern, line):
+                def_idx = idx
+                break
+
+        if def_idx is None:
+            return content
+
+        imports = []
+        for line in lines[:def_idx]:
+            stripped = line.strip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                imports.append('    ' + stripped)
+
+        body = lines[def_idx + 1:]
+        while body and not body[0].strip():
+            body.pop(0)
+
+        if not body:
+            return '\n'.join(imports + ['    pass'])
+
+        min_indent = None
+        for line in body:
+            if line.strip():
+                indent = len(line) - len(line.lstrip())
+                min_indent = indent if min_indent is None else min(min_indent, indent)
+
+        if min_indent is None:
+            normalized_body = ['    pass']
+        else:
+            normalized_body = ['    ' + line[min_indent:] if line.strip() else line for line in body]
+
+        return '\n'.join(imports + normalized_body)
     
     @staticmethod
     def test_case_extract(content, entry_point):

@@ -1,6 +1,9 @@
 import json
 import copy
 import argparse
+import importlib
+import importlib.util
+import multiprocessing
 import signal
 import sys
 from pathlib import Path
@@ -74,8 +77,62 @@ def create_llm():
     return FewShotLLM()
 
 
+def llm_usage_dict(code_llm):
+    return {
+        'usage': getattr(code_llm, 'last_usage', None),
+        'model': getattr(code_llm, 'last_model', None),
+        'provider': getattr(code_llm, 'last_provider', None),
+    }
+
+
+def load_prompt_module(module_name):
+    if not module_name:
+        return
+
+    if module_name.endswith('.py') or Path(module_name).exists():
+        module_path = Path(module_name).resolve()
+        spec = importlib.util.spec_from_file_location('clarify_prompt_override', module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_name)
+
+    globals()['askcq_prompt'] = module.askcq_prompt
+    globals()['answercq_prompt'] = module.answercq_prompt
+    globals()['synthesize_prompt'] = module.synthesize_prompt
+
+
+def _exec_code_worker(code_to_be_test, queue):
+    loc = {}
+    try:
+        exec(code_to_be_test, loc)
+        queue.put(loc.get('xx', 'error!!!'))
+    except Exception:
+        queue.put('error!!!')
+
+
+def exec_code_with_timeout(code_to_be_test, timeout_seconds):
+    queue = multiprocessing.Queue(maxsize=1)
+    process = multiprocessing.Process(target=_exec_code_worker, args=(code_to_be_test, queue))
+    process.start()
+    process.join(timeout_seconds)
+
+    if process.is_alive():
+        process.terminate()
+        process.join(1)
+        return 'error!!!'
+
+    if queue.empty():
+        return 'error!!!'
+
+    try:
+        return queue.get_nowait()
+    except Exception:
+        return 'error!!!'
+
+
 # 1. run sample codes on tests, get task_id of the unclear prompts
-def runTests_getTaskID(sample_code_file, tests_file, save_path=None, sample_count=25, limit=None):
+def runTests_getTaskID(sample_code_file, tests_file, save_path=None, sample_count=25, limit=None, test_timeout=0.2):
     with open(tests_file, 'r') as f:
         tests_lines = f.readlines()
 
@@ -113,16 +170,19 @@ def runTests_getTaskID(sample_code_file, tests_file, save_path=None, sample_coun
                     test = '\n'.join(test_list)
 
                     if hasattr(signal, 'setitimer'):
-                        code_to_be_test = time_limit_func + '\n' + complete_code + '\n\ntry:\n    with time_limit(0.2):\n' + indent_block(test, 8) + '\nexcept Exception:\n    xx = "error!!!"'
+                        code_to_be_test = time_limit_func + '\n' + complete_code + f'\n\ntry:\n    with time_limit({test_timeout}):\n' + indent_block(test, 8) + '\nexcept Exception:\n    xx = "error!!!"'
                     else:
                         code_to_be_test = complete_code + '\n\ntry:\n' + indent_block(test, 4) + '\nexcept Exception:\n    xx = "error!!!"'
                     # print(code_to_be_test)
-                    loc = {}
-                    try:
-                        exec(code_to_be_test, loc)
-                        return_value = loc['xx']
-                    except Exception:
-                        return_value = 'error!!!'
+                    if hasattr(signal, 'setitimer'):
+                        loc = {}
+                        try:
+                            exec(code_to_be_test, loc)
+                            return_value = loc['xx']
+                        except Exception:
+                            return_value = 'error!!!'
+                    else:
+                        return_value = exec_code_with_timeout(code_to_be_test, test_timeout)
                     test_result.append(return_value)
 
                 if str(test_result) in all_test_results.keys():
@@ -203,7 +263,7 @@ def askcq_runRequest(inference_type, needcq_file, askcq_path=None):
             for res in llm_response:
                 print(res)
                 print('=======================================')
-                json.dump(dict(task_id=task_id, askcq=res), w)
+                json.dump(dict(task_id=task_id, askcq=res, **llm_usage_dict(code_llm)), w)
                 w.write('\n')
 
     return askcq_path
@@ -249,7 +309,7 @@ def answercq_runRequest(inference_type, needcq_file, askcq_results_path, answerc
 
             for res in llm_response:
                 print(res)
-                json.dump(dict(task_id=task_id, answercq=res), w)
+                json.dump(dict(task_id=task_id, answercq=res, **llm_usage_dict(code_llm)), w)
                 w.write('\n')
 
     return answercq_path
@@ -301,7 +361,7 @@ def answercq_w_test_runRequest(test_file, inference_type, needcq_file, askcq_res
 
             for res in llm_response:
                 print(res)
-                json.dump(dict(task_id=task_id, answercq=res), w)
+                json.dump(dict(task_id=task_id, answercq=res, **llm_usage_dict(code_llm)), w)
                 w.write('\n')
 
     return answercq_path
@@ -348,7 +408,7 @@ def synthesize_runRequest(inference_type, needcq_file, askcq_results_path, answe
             for res in llm_response:
                 print(res)
                 print('=================================')
-                json.dump(dict(task_id=task_id, raw_code_completion=res), w)
+                json.dump(dict(task_id=task_id, raw_code_completion=res, **llm_usage_dict(code_llm)), w)
                 w.write('\n')
 
     return synthesize_path
@@ -417,6 +477,8 @@ def build_args():
     parser.add_argument('--limit', type=int, help='Only process the first N tasks. Useful for smoke tests.')
     parser.add_argument('--samples-per-task', type=int, default=25,
                         help='How many sample-code rows exist for each task in --sample-code-file.')
+    parser.add_argument('--test-timeout', type=float, default=0.2,
+                        help='Maximum seconds to execute each generated sample against each test during needcq.')
     parser.add_argument('--force', action='store_true', help='Regenerate files even when they already exist.')
     parser.add_argument('--sample-code-file', help='Sample-code jsonl used to build mbpp_needcq_gpt4.jsonl.')
     parser.add_argument('--test-case-file', help='MBPP tests jsonl used to build mbpp_needcq_gpt4.jsonl.')
@@ -427,6 +489,8 @@ def build_args():
     parser.add_argument('--answercq-path', help='Path for generated answer-cq results.')
     parser.add_argument('--synthesize-path', help='Path for generated synthesize results.')
     parser.add_argument('--final-path', help='Path for final MBPP output.')
+    parser.add_argument('--prompt-module',
+                        help='Optional Python module or .py file with askcq_prompt, answercq_prompt and synthesize_prompt.')
     return parser.parse_args()
 
 
@@ -439,6 +503,8 @@ def should_run(path, force):
 
 
 def run_pipeline(args):
+    load_prompt_module(args.prompt_module)
+
     data_dir = Path(args.data_dir).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -490,6 +556,7 @@ def run_pipeline(args):
             str(needcq_path),
             sample_count=args.samples_per_task,
             limit=args.limit,
+            test_timeout=args.test_timeout,
         )
 
     if args.stage == 'needcq':

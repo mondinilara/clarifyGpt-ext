@@ -1,0 +1,32 @@
+﻿{
+    "tokenizer":  "regex_estimate",
+    "inference_type":  "three_shot",
+    "stages":  [
+                   {
+                       "stage":  "askcq",
+                       "original_tokens":  1269,
+                       "optimized_tokens":  782,
+                       "reduced_tokens":  487,
+                       "reduction_percent":  38.38
+                   },
+                   {
+                       "stage":  "answercq",
+                       "original_tokens":  1012,
+                       "optimized_tokens":  689,
+                       "reduced_tokens":  323,
+                       "reduction_percent":  31.92
+                   },
+                   {
+                       "stage":  "synthesize",
+                       "original_tokens":  1016,
+                       "optimized_tokens":  482,
+                       "reduced_tokens":  534,
+                       "reduction_percent":  52.56
+                   }
+               ],
+    "total_original_tokens":  3297,
+    "total_optimized_tokens":  1953,
+    "total_reduced_tokens":  1344,
+    "total_reduction_percent":  40.76,
+    "note":  "Fallback estimate over static three_shot prompt definitions. Run measure_prompt_tokens.py with tiktoken installed for OpenAI tokenizer counts."
+}

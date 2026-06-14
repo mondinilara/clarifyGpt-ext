@@ -1,0 +1,4 @@
+experiment_name,stage,calls,estimated_input_tokens,estimated_output_tokens,estimated_total_tokens,estimated_cost_usd,actual_input_tokens,actual_output_tokens,actual_total_tokens
+RQ3_optimized_matched,askcq,214,134905,13638,148543,0.028419,0,0,0
+RQ3_optimized_matched,answercq,214,97881,9166,107047,0.020182,0,0,0
+RQ3_optimized_matched,synthesize,214,88023,11500,99523,0.020103,0,0,0
